@@ -105,10 +105,16 @@ jobs:
         if: steps.detect.outputs.exists == 'true'
         working-directory: frontend
         run: npm ci
-      - name: lint
+      - name: 型定義が最新か確認（OpenAPI から再生成して差分が無いこと）
         if: steps.detect.outputs.exists == 'true'
         working-directory: frontend
-        run: npm run lint --if-present
+        run: |
+          npm run gen:api
+          git diff --exit-code -- src/api/schema.d.ts || { echo "::error::api/openapi.yml と src/api/schema.d.ts がずれています。npm run gen:api を実行してコミットしてください。"; exit 1; }
+      - name: lint（型チェック）
+        if: steps.detect.outputs.exists == 'true'
+        working-directory: frontend
+        run: npm run lint
       - name: 型チェックとビルド
         if: steps.detect.outputs.exists == 'true'
         working-directory: frontend
