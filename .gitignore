@@ -21,3 +21,6 @@ dist/
 *.exe
 *.test
 *.out
+
+# ローカル確認用のDB（documents/localCheck.md）
+.localdb/
