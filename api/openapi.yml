@@ -1,0 +1,350 @@
+openapi: 3.0.3
+info:
+  title: SNS API
+  version: 0.1.0
+  description: |
+    X風SNSのAPI（フェーズ1：アカウント、投稿、ホームタイムライン、フォロー、いいね）。
+
+    - 認証はセッションCookie（`session`）。ログインは `POST /auth/login`。
+    - `GET` 以外のリクエストには CSRF 対策として `X-Requested-With` ヘッダー（値は任意）が必須。
+    - 一覧はカーソル方式。レスポンスの `nextCursor` を次回の `cursor` に渡す。`null` なら終端。
+servers:
+  - url: /api/v1
+tags:
+  - name: auth
+  - name: users
+  - name: posts
+  - name: timeline
+
+security:
+  - sessionCookie: []
+
+paths:
+  /auth/register:
+    post:
+      tags: [auth]
+      summary: 新規登録
+      operationId: register
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RegisterRequest" }
+      responses:
+        "201":
+          description: 登録した
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: ログイン（セッションCookieを発行する）
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: ログインした
+          headers:
+            Set-Cookie:
+              description: "`session`（HttpOnly, SameSite=Lax）"
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: ログアウト
+      operationId: logout
+      security: [{}, { sessionCookie: [] }]
+      responses:
+        "204":
+          description: ログアウトした（セッションCookieを削除する）
+          headers:
+            Set-Cookie:
+              description: "`session` を失効させる"
+              schema: { type: string }
+        default: { $ref: "#/components/responses/Error" }
+
+  /auth/me:
+    get:
+      tags: [auth]
+      summary: ログイン中のユーザー
+      operationId: getMe
+      responses:
+        "200":
+          description: ログイン中のユーザー
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /users/{handle}:
+    get:
+      tags: [users]
+      summary: プロフィール
+      operationId: getProfile
+      security: [{}, { sessionCookie: [] }]
+      parameters:
+        - $ref: "#/components/parameters/Handle"
+      responses:
+        "200":
+          description: プロフィール
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Profile" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /users/{handle}/posts:
+    get:
+      tags: [users]
+      summary: ユーザーの投稿一覧（新しい順）
+      operationId: listUserPosts
+      security: [{}, { sessionCookie: [] }]
+      parameters:
+        - $ref: "#/components/parameters/Handle"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: 投稿一覧
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PostPage" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /users/{handle}/follow:
+    put:
+      tags: [users]
+      summary: フォローする（すでにフォロー済みでも成功）
+      operationId: follow
+      parameters:
+        - $ref: "#/components/parameters/Handle"
+      responses:
+        "204": { description: フォローした }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [users]
+      summary: フォローを解除する
+      operationId: unfollow
+      parameters:
+        - $ref: "#/components/parameters/Handle"
+      responses:
+        "204": { description: 解除した }
+        default: { $ref: "#/components/responses/Error" }
+
+  /posts:
+    post:
+      tags: [posts]
+      summary: 投稿する（140文字まで）
+      operationId: createPost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreatePostRequest" }
+      responses:
+        "201":
+          description: 投稿した
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Post" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /posts/{id}:
+    get:
+      tags: [posts]
+      summary: 投稿の詳細
+      operationId: getPost
+      security: [{}, { sessionCookie: [] }]
+      parameters:
+        - $ref: "#/components/parameters/PostId"
+      responses:
+        "200":
+          description: 投稿
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Post" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [posts]
+      summary: 自分の投稿を削除する
+      operationId: deletePost
+      parameters:
+        - $ref: "#/components/parameters/PostId"
+      responses:
+        "204": { description: 削除した }
+        default: { $ref: "#/components/responses/Error" }
+
+  /posts/{id}/like:
+    put:
+      tags: [posts]
+      summary: いいねする（すでにいいね済みでも成功）
+      operationId: likePost
+      parameters:
+        - $ref: "#/components/parameters/PostId"
+      responses:
+        "204": { description: いいねした }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [posts]
+      summary: いいねを取り消す
+      operationId: unlikePost
+      parameters:
+        - $ref: "#/components/parameters/PostId"
+      responses:
+        "204": { description: 取り消した }
+        default: { $ref: "#/components/responses/Error" }
+
+  /timeline/home:
+    get:
+      tags: [timeline]
+      summary: ホームタイムライン（本人とフォロー中のユーザーの投稿、新しい順）
+      operationId: getHomeTimeline
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: 投稿一覧
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PostPage" }
+        default: { $ref: "#/components/responses/Error" }
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: session
+
+  parameters:
+    Handle:
+      name: handle
+      in: path
+      required: true
+      schema: { type: string, pattern: "^[A-Za-z0-9_]{3,15}$" }
+    PostId:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, format: int64, minimum: 1 }
+    Cursor:
+      name: cursor
+      in: query
+      description: 前回のレスポンスの `nextCursor`。省略すると先頭から。
+      schema: { type: string }
+    Limit:
+      name: limit
+      in: query
+      description: 取得件数（既定20、最大50）
+      schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+
+  responses:
+    Error:
+      description: |
+        エラー。HTTPステータスと `code` の対応は次のとおり。
+        400 `validation_error` / `bad_request`、401 `unauthorized`、403 `forbidden` / `csrf`、
+        404 `not_found`、409 `conflict`、500 `internal_error`。
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          example: validation_error
+          description: validation_error / unauthorized / forbidden / csrf / not_found / conflict / bad_request / internal_error
+        message: { type: string }
+        field:
+          type: string
+          description: 入力エラーの対象フィールド（validation_error のとき）
+
+    RegisterRequest:
+      type: object
+      required: [handle, displayName, email, password]
+      additionalProperties: false
+      properties:
+        handle: { type: string, pattern: "^[A-Za-z0-9_]{3,15}$", example: taro_1 }
+        displayName: { type: string, minLength: 1, maxLength: 50, example: 太郎 }
+        email: { type: string, format: email }
+        password: { type: string, minLength: 8, maxLength: 128, format: password }
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      additionalProperties: false
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, format: password }
+
+    CreatePostRequest:
+      type: object
+      required: [body]
+      additionalProperties: false
+      properties:
+        body: { type: string, minLength: 1, maxLength: 140 }
+
+    User:
+      type: object
+      required: [handle, displayName, bio, createdAt]
+      properties:
+        handle: { type: string }
+        displayName: { type: string }
+        bio: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    Profile:
+      allOf:
+        - $ref: "#/components/schemas/User"
+        - type: object
+          required: [followerCount, followingCount, postCount, isFollowing]
+          properties:
+            followerCount: { type: integer }
+            followingCount: { type: integer }
+            postCount: { type: integer }
+            isFollowing:
+              type: boolean
+              description: 閲覧者がフォロー中か（未ログインなら false）
+
+    Post:
+      type: object
+      required: [id, body, createdAt, authorHandle, authorDisplayName, likeCount, likedByMe]
+      properties:
+        id: { type: integer, format: int64 }
+        body: { type: string }
+        createdAt: { type: string, format: date-time }
+        authorHandle: { type: string }
+        authorDisplayName: { type: string }
+        likeCount: { type: integer }
+        likedByMe:
+          type: boolean
+          description: 閲覧者がいいね済みか（未ログインなら false）
+
+    PostPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Post" }
+        nextCursor:
+          type: string
+          nullable: true
+          description: 次ページのカーソル。続きが無ければ null。

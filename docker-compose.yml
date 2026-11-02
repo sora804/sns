@@ -1,0 +1,21 @@
+# ローカル開発用。`docker compose up -d db` でPostgreSQLだけ起動し、
+# backend は `cd backend && go run ./cmd/server` で動かす（下の環境変数を設定）。
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: sns
+      POSTGRES_PASSWORD: sns
+      POSTGRES_DB: sns
+    ports:
+      - "5432:5432"
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sns"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  dbdata:

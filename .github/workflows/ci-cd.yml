@@ -1,0 +1,140 @@
+name: CI/CD
+
+# develop への push で CI を実行し、すべて成功したら main へ反映する。
+# main への直接 push やPRでは CI のみ実行する（反映は行わない）。
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [develop, main]
+
+# 同じブランチで複数回走った場合は古い実行を取り消す
+concurrency:
+  group: ci-cd-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------- CI ----------
+  openapi:
+    name: OpenAPI 検証
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Spectral で lint
+        run: |
+          if [ -s api/openapi.yml ]; then
+            npx --yes @stoplight/spectral-cli lint api/openapi.yml
+          else
+            echo "api/openapi.yml が空のためスキップ"
+          fi
+
+  backend:
+    name: Backend (Go)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: sns_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://test:test@localhost:5432/sns_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - name: backend の有無を確認
+        id: detect
+        run: |
+          if [ -f backend/go.mod ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "backend/go.mod が無いためスキップ"; fi
+      - uses: actions/setup-go@v5
+        if: steps.detect.outputs.exists == 'true'
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: 生成コードが最新か確認（OpenAPI から ogen で再生成して差分が無いこと）
+        if: steps.detect.outputs.exists == 'true'
+        working-directory: backend
+        run: |
+          go generate ./...
+          git diff --exit-code -- internal/gen || { echo "::error::api/openapi.yml と internal/gen がずれています。go generate ./... を実行してコミットしてください。"; exit 1; }
+      - name: フォーマット確認
+        if: steps.detect.outputs.exists == 'true'
+        working-directory: backend
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - name: go vet
+        if: steps.detect.outputs.exists == 'true'
+        working-directory: backend
+        run: go vet ./...
+      - name: テスト
+        if: steps.detect.outputs.exists == 'true'
+        working-directory: backend
+        run: go test ./... -race -count=1
+      - name: ビルド
+        if: steps.detect.outputs.exists == 'true'
+        working-directory: backend
+        run: go build ./...
+
+  frontend:
+    name: Frontend (React)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: frontend の有無を確認
+        id: detect
+        run: |
+          if [ -f frontend/package.json ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "frontend/package.json が無いためスキップ"; fi
+      - uses: actions/setup-node@v4
+        if: steps.detect.outputs.exists == 'true'
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: 依存関係のインストール
+        if: steps.detect.outputs.exists == 'true'
+        working-directory: frontend
+        run: npm ci
+      - name: lint
+        if: steps.detect.outputs.exists == 'true'
+        working-directory: frontend
+        run: npm run lint --if-present
+      - name: 型チェックとビルド
+        if: steps.detect.outputs.exists == 'true'
+        working-directory: frontend
+        run: npm run build
+      - name: テスト
+        if: steps.detect.outputs.exists == 'true'
+        working-directory: frontend
+        run: npm test --if-present
+
+  # ---------- CD ----------
+  # develop への push で、上の CI がすべて成功した場合のみ main を更新する。
+  promote:
+    name: main へ反映
+    needs: [openapi, backend, frontend]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: main を develop に早送り(fast-forward)
+        run: |
+          git fetch origin main
+          # main に develop に無いコミットがあれば失敗させる（履歴を壊さない）
+          git merge-base --is-ancestor origin/main "$GITHUB_SHA" \
+            || { echo "::error::main が develop の先祖ではありません。develop に main を取り込んでください。"; exit 1; }
+          git push origin "$GITHUB_SHA:refs/heads/main"
