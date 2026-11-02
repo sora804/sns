@@ -94,6 +94,24 @@ npm run dev
 
 ブラウザで **http://localhost:5173** を開く。`/api` へのリクエストは、自動で backend（`:8080`）へ中継される。
 
+## 3.5 テストユーザーを投入する（任意）
+
+登録の手間を省くため、テストユーザーと投稿のデータを入れられる。何度実行しても重複しない。
+
+```bash
+cd backend
+DATABASE_URL="postgres://sns@127.0.0.1:5433/sns?sslmode=disable" go run ./cmd/seed
+```
+
+| メールアドレス | ユーザーID | 状態 |
+|----------------|------------|------|
+| `alice@example.com` | `alice` | `bob` と相互フォロー |
+| `bob@example.com` | `bob` | `alice` と相互フォロー |
+| `carol@example.com` | `carol` | 誰もフォローしていない（ホームには自分の投稿だけ表示される） |
+
+パスワードは [backend/cmd/seed/main.go](../backend/cmd/seed/main.go) の `testPassword` を参照。
+**ローカル確認専用**で、接続先が `localhost` / `127.0.0.1` 以外のときは実行を拒否する。本番では使わないこと。
+
 ## 4. 画面で確認すること
 
 1. 「新規登録」からアカウントを作る（登録後は自動でログインされる）。
