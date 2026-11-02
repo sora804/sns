@@ -1,0 +1,23 @@
+# 環境変数・秘密情報
+.env
+.env.*
+
+# OS・エディタ
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Node
+node_modules/
+dist/
+
+# Go
+*.exe
+*.test
+*.out
